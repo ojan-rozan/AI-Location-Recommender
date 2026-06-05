@@ -1,3 +1,12 @@
+---
+title: Coffee Shop Location AI
+emoji: ☕
+colorFrom: red
+colorTo: yellow
+sdk: docker
+pinned: false
+---
+
 # ☕ Coffee Shop Location Recommender — Jakarta
 
 AI platform untuk rekomendasi lokasi pembukaan coffee shop di DKI Jakarta. Input koordinat (lat/long) → output skor kelayakan 0-100 + AI narrative recommendation.
