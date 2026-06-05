@@ -10,8 +10,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy kode
 COPY . .
 
-# Port: HF default 7860; lokal bisa di-set via env PORT
+# Port
 EXPOSE 7860 8000 8501
 
-# start.sh milih API atau UI berdasarkan env APP_MODE (default: api)
+# start.sh milih API atau UI berdasarkan env APP_MODE
 CMD ["bash", "start.sh"]

@@ -1,9 +1,3 @@
-# Jalanin API (FastAPI) + UI (Streamlit) lokal dari image yang sama.
-#   docker compose up --build
-#
-# UI  : http://localhost:8501
-# API : http://localhost:8000/docs
-
 services:
   api:
     build: .

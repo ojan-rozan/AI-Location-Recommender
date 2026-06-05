@@ -1,6 +1,3 @@
-#!/usr/bin/env bash
-# Pilih app berdasarkan env APP_MODE: "api" (default) atau "ui".
-# Port dari $PORT (HF default 7860; lokal bisa di-set sendiri).
 set -e
 
 PORT="${PORT:-7860}"

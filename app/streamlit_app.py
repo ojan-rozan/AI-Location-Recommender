@@ -1,11 +1,5 @@
 """
 Coffee Shop Location Recommender — Streamlit UI.
-
-UI manggil API (FastAPI). Jalanin API dulu:
-    uvicorn app.api:app --port 8000
-    streamlit run app/streamlit_app.py
-
-URL API dari env API_URL (default http://localhost:8000).
 """
 
 import os

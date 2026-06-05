@@ -1,13 +1,5 @@
 """
 REST API — Coffee Shop Location Recommender (FastAPI).
-
-Mandiri: load model + data (Supabase) + predict di file ini.
-Dipakai untuk poin "Deployment model via API".
-
-Jalanin lokal:
-    uvicorn app.api:app --reload --port 8000
-
-Docs interaktif (Swagger): http://localhost:8000/docs
 """
 
 import sys

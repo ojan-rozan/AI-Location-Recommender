@@ -1,6 +1,3 @@
-#!/usr/bin/env bash
-# Pilih app berdasarkan env APP_MODE: "api" -> FastAPI, selain itu -> Streamlit.
-# Port dari $PORT (HF Spaces set otomatis, default 7860).
 set -e
 PORT="${PORT:-7860}"
 
