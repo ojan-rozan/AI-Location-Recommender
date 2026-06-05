@@ -1,17 +1,24 @@
 """
-Supabase data IO
+Supabase data IO via REST API (pakai requests / HTTP-1.1).
+
+Sengaja TIDAK pakai library `supabase` (yang pakai httpx HTTP/2) karena
+HTTP/2 sering ke-reset (StreamReset) di sebagian jaringan (mis. Hugging Face).
+requests pakai HTTP/1.1 -> stabil.
+
+Tiap dataset = 1 tabel sendiri (kolom: id, data jsonb, created_at).
+Butuh di env: SUPABASE_URL, SUPABASE_KEY (service_role untuk tulis).
 """
 
 import os
 import json
-import time
 
+import requests
 import pandas as pd
-from supabase import create_client
 from dotenv import load_dotenv
 
 load_dotenv()
 
+# Nama tabel/dataset
 RAW_CAFES = "raw_cafes"
 OWNER_STORES = "owner_stores"
 KECAMATAN_REF = "kecamatan_ref"
@@ -29,7 +36,6 @@ def clean_poi(category: str):
 
 
 def all_tables():
-    """create name table"""
     names = [RAW_CAFES, OWNER_STORES, KECAMATAN_REF, CLEAN_CAFES, CLEAN_OWNER]
     for cat in POI_CATEGORIES:
         names.append(raw_poi(cat))
@@ -37,102 +43,67 @@ def all_tables():
     return names
 
 
-_client = None
+def _creds():
+    url = os.environ.get("SUPABASE_URL", "").strip().rstrip("/")
+    key = os.environ.get("SUPABASE_KEY", "").strip()
+    if not url or not key:
+        raise RuntimeError("SUPABASE_URL + SUPABASE_KEY wajib di-set di .env")
+    return url, key
 
 
-def get_client():
-    """Import Supabase client"""
-    global _client
-    if _client is None:
-        url = os.environ.get("SUPABASE_URL", "").strip().rstrip("/")
-        key = os.environ.get("SUPABASE_KEY", "").strip()
-        if not url or not key:
-            raise RuntimeError(
-                "SUPABASE_URL + SUPABASE_KEY wajib di-set di .env "
-            )
-        _client = create_client(url, key)
-    return _client
-
-
-def _reset_client():
-    """Buang client lama (koneksi ke-reset) biar bikin koneksi baru."""
-    global _client
-    _client = None
-
-
-def _with_retry(fn, tries=4, delay=1.5):
-    """
-    Jalanin fn() dengan retry. Supabase/httpx kadang lempar StreamReset
-    (HTTP/2 reset) yang transient — coba ulang dengan koneksi baru.
-    """
-    last_err = None
-    for attempt in range(tries):
-        try:
-            return fn()
-        except Exception as e:
-            last_err = e
-            print(f"  ⚠️  supabase error (attempt {attempt + 1}/{tries}): "
-                  f"{type(e).__name__}: {str(e)[:80]}")
-            _reset_client()
-            time.sleep(delay)
-    raise last_err
+def _headers(key, write=False):
+    h = {"apikey": key, "Authorization": f"Bearer {key}"}
+    if write:
+        h["Content-Type"] = "application/json"
+        h["Prefer"] = "return=minimal"
+    return h
 
 
 def _to_json_records(df):
-    """
-    DataFrame -> list of dict yang aman buat JSON.
-    Lewat df.to_json: Timestamp/date -> ISO string, NaN/NaT -> null,
-    tipe numpy -> tipe Python native.
-    """
+    """DataFrame -> list dict JSON-safe (Timestamp->ISO, NaN/NaT->null)."""
     return json.loads(df.to_json(orient="records", date_format="iso"))
 
 
 def upload_df(table, df, chunk_size=500, replace=True):
-    """
-    Upload DataFrame ke tabel Supabase (dengan retry kalau koneksi reset).
-    """
+    """Upload DataFrame ke tabel Supabase via REST (1 row = 1 payload jsonb)."""
+    url, key = _creds()
+    base = f"{url}/rest/v1/{table}"
+
+    if replace:
+        # hapus semua baris (id selalu >= 1)
+        r = requests.delete(f"{base}?id=gte.0", headers=_headers(key, write=True), timeout=60)
+        r.raise_for_status()
+
     records = _to_json_records(df)
-    rows = [{"data": r} for r in records]
+    rows = [{"data": rec} for rec in records]
 
-    def _do():
-        client = get_client()
-        if replace:
-            client.table(table).delete().gte("id", 0).execute()
-        for i in range(0, len(rows), chunk_size):
-            client.table(table).insert(rows[i:i + chunk_size]).execute()
-        return len(rows)
+    for i in range(0, len(rows), chunk_size):
+        r = requests.post(base, headers=_headers(key, write=True),
+                          json=rows[i:i + chunk_size], timeout=120)
+        r.raise_for_status()
 
-    n = _with_retry(_do)
-    print(f"  ↑ supabase '{table}': {n} rows uploaded")
-    return n
+    print(f"  ↑ supabase '{table}': {len(rows)} rows uploaded")
+    return len(rows)
 
 
 def read_df(table: str) -> pd.DataFrame:
-    """
-    Read tabel Supabase `table` jadi DataFrame (dengan retry kalau reset).
-    """
-    def _do():
-        client = get_client()
-        payloads = []
-        page_size = 1000
-        page = 0
-        while True:
-            start = page * page_size
-            end = start + page_size - 1
-            resp = (
-                client.table(table)
-                .select("data")
-                .range(start, end)
-                .execute()
-            )
-            batch = resp.data or []
-            payloads.extend([row["data"] for row in batch])
-            if len(batch) < page_size:
-                break
-            page += 1
-        return payloads
+    """Read tabel Supabase via REST jadi DataFrame (auto-paginate)."""
+    url, key = _creds()
+    base = f"{url}/rest/v1/{table}"
+    payloads = []
+    offset = 0
+    page = 1000
 
-    payloads = _with_retry(_do)
+    while True:
+        params = {"select": "data", "limit": page, "offset": offset}
+        r = requests.get(base, headers=_headers(key), params=params, timeout=60)
+        r.raise_for_status()
+        batch = r.json()
+        payloads.extend([row["data"] for row in batch])
+        if len(batch) < page:
+            break
+        offset += page
+
     df = pd.DataFrame(payloads)
     print(f"  ✓ supabase '{table}': {len(df)} rows")
     return df
