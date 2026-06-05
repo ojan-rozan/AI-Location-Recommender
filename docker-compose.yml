@@ -1,0 +1,30 @@
+# Jalanin API (FastAPI) + UI (Streamlit) sekaligus dari image yang sama.
+#   docker compose up --build   -> build + nyalain dua-duanya
+#   docker compose down         -> matiin
+#
+# UI  : http://localhost:8501   (yang dibuka user)
+# API : http://localhost:8000/docs
+
+services:
+  api:
+    build: .
+    image: loc-recsys-app
+    ports:
+      - "8000:8000"
+    env_file: .env
+    restart: unless-stopped
+    # CMD default dari Dockerfile = uvicorn (API)
+
+  ui:
+    build: .
+    image: loc-recsys-app
+    ports:
+      - "8501:8501"
+    env_file: .env
+    environment:
+      # UI manggil API lewat nama service "api" di jaringan compose
+      - API_URL=http://api:8000
+    depends_on:
+      - api
+    restart: unless-stopped
+    command: streamlit run app/streamlit_app.py --server.port=8501 --server.address=0.0.0.0

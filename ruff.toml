@@ -1,0 +1,14 @@
+# Config starter — fokus ke bug beneran dulu (syntax error, undefined name,
+# unused import). Style minor sengaja dilonggarin biar gak bikin CI merah di
+# codebase existing. Nanti bisa ditambah rule-nya pelan-pelan.
+target-version = "py311"
+line-length = 100
+
+[lint]
+select = [
+    "E9",   # syntax error
+    "F63",  # invalid comparison
+    "F7",   # syntax-ish (break/return di luar tempatnya)
+    "F82",  # undefined name
+    "F401", # unused import
+]

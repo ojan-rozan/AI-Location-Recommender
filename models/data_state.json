@@ -1,0 +1,9 @@
+{
+  "data/raw/cafes_gmaps.csv": null,
+  "data/helper/owner_stores.csv": {
+    "hash": "8a3df56eedd640c6a2ff7242896087a5",
+    "rows": 18,
+    "size_kb": 2,
+    "mtime": "2026-05-24T18:59:11.308121"
+  }
+}
