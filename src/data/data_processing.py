@@ -15,27 +15,27 @@ class DataProcessor:
     def __init__(self, data, jakarta_bbox, cafe_keywords):
         self.cafe_keywords = cafe_keywords
         self.jakarta_bbox = jakarta_bbox
-        self.cafes = self._clean_cafes(data["cafes"])
-        self.owner = self._clean_owner(data["owner"])
-        self.poi = self._clean_poi(data["poi"])
+        self.cafes = self.clean_cafes(data["cafes"])
+        self.owner = self.clean_owner(data["owner"])
+        self.poi = self.clean_poi(data["poi"])
 
-    def _in_jakarta(self, df, lat_col="lat", lng_col="lng"):
+    def filter_jakarta(self, df, lat_col="lat", lng_col="lng"):
         return (
             df[lat_col].between(self.jakarta_bbox["lat_min"], self.jakarta_bbox["lat_max"])
             & df[lng_col].between(self.jakarta_bbox["lng_min"], self.jakarta_bbox["lng_max"])
         )
 
-    def _dedupe_by_coord(self, df, decimals=5):
+    def remove_duplicate_coords(self, df, decimals=5):
         df = df.copy()
-        df["_key"] = (
-            df["lat"].round(decimals).astype(str)
-            + "_"
-            + df["lng"].round(decimals).astype(str)
+        df["lat_round"] = df["lat"].round(decimals)
+        df["lng_round"] = df["lng"].round(decimals)
+
+        df = df.drop_duplicates(
+            subset=["lat_round", "lng_round"]
         )
-        df = df.drop_duplicates(subset="_key").drop(columns="_key").reset_index(drop=True)
         return df
 
-    def _standardize_columns(self, df):
+    def rename_columns(self, df):
         if "latitude" in df.columns:
             df = df.rename(columns={"latitude": "lat"})
         if "longitude" in df.columns:
@@ -46,16 +46,16 @@ class DataProcessor:
             df = df.rename(columns={"user_rating_count": "reviews_count"})
         return df
 
-    def _clean_cafes(self, df):
+    def clean_cafes(self, df):
         """Clean cafes Google Maps"""
         df = df.copy()
         n0 = len(df)
 
-        df = self._standardize_columns(df)
+        df = self.rename_columns(df)
         df = df[df["lat"].notna() & df["lng"].notna()]
         df = df[df["rating"].notna()]
         df["reviews_count"] = df["reviews_count"].fillna(0).astype(int)
-        df = df[self._in_jakarta(df)]
+        df = df[self.filter_jakarta(df)]
 
         # Filter cafe-only
         pattern = "|".join(self.cafe_keywords)
@@ -67,19 +67,19 @@ class DataProcessor:
         mask |= df["name"].fillna("").str.lower().str.contains(pattern)
         df = df[mask]
 
-        df = self._dedupe_by_coord(df)
+        df = self.remove_duplicate_coords(df)
 
         print(f"  ✓ cafes: {len(df)} (from {n0})")
         return df
 
-    def _clean_owner(self, df):
+    def clean_owner(self, df):
         """Clean owner stores"""
         df = df.copy()
         n0 = len(df)
 
-        df = self._standardize_columns(df)
+        df = self.rename_columns(df)
         df = df[df["lat"].notna() & df["lng"].notna()]
-        df = df[self._in_jakarta(df)]
+        df = df[self.filter_jakarta(df)]
 
         if "tanggal_buka" in df.columns:
             df["tanggal_buka"] = pd.to_datetime(df["tanggal_buka"], errors="coerce")
@@ -91,17 +91,17 @@ class DataProcessor:
         print(f"  ✓ owner: {len(df)} (from {n0})")
         return df
 
-    def _clean_poi(self, poi_dict):
+    def clean_poi(self, poi_dict):
         """Clean semua POI kategori."""
         result = {}
         for cat, df in poi_dict.items():
             df = df.copy()
             n0 = len(df)
 
-            df = self._standardize_columns(df)
+            df = self.rename_columns(df)
             df = df[df["lat"].notna() & df["lng"].notna()]
-            df = df[self._in_jakarta(df)]
-            df = self._dedupe_by_coord(df)
+            df = df[self.filter_jakarta(df)]
+            df = self.remove_duplicate_coords(df)
 
             drop_cols = ["all_tags"]
             df = df.drop(columns=[c for c in drop_cols if c in df.columns])

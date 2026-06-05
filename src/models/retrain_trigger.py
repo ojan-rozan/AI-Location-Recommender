@@ -1,7 +1,7 @@
-"""Auto-retrain trigger: detect new data and run training."""
+"""Auto retrain trigger based on data changes and model age."""
 
-import json
 import hashlib
+import json
 import subprocess
 from datetime import datetime
 from pathlib import Path
@@ -10,140 +10,214 @@ import pandas as pd
 
 from src.data.data_loader import ROOT
 
+STATE_FILE = ROOT / "models" / "data_state.json"
+META_FILE = ROOT / "models" / "model_meta.json"
 
-state_file = ROOT / "models" / "data_state.json"
-meta_file  = ROOT / "models" / "model_meta.json"
-
-default_data_files = [
+DEFAULT_DATA_FILES = [
     ROOT / "data" / "raw" / "cafes_gmaps.csv",
     ROOT / "data" / "helper" / "owner_stores.csv",
 ]
 
 
 class RetrainTrigger:
-    """Detect change in data + trigger retrain kalau threshold lampaui."""
+    """Detect dataset updates and trigger model retraining."""
 
-    row_threshold  = 0.10   # 10% new data → retrain
-    time_threshold_days = 30    # model > 30 hari → retrain
+    def __init__(self, data_files=None, state_file=STATE_FILE, row_threshold=0.10, time_threshold_days=30):
+        self.data_files = data_files or DEFAULT_DATA_FILES
+        self.state_file = Path(state_file)
+        self.row_threshold = row_threshold
+        self.time_threshold_days = time_threshold_days
 
-    def __init__(self, data_files=None, state_file=state_file):
-        self.data_files = data_files or default_data_files
-        self.state_file = Path(state_file or default_data_files)
+    def hash_file(self, path):
+        """Generate MD5 hash for a file."""
 
-    def _hash_file(self, path: Path):
-        h = hashlib.md5()
-        with open(path, "rb") as f:
-            while chunk := f.read(8192):
-                h.update(chunk)
-        return h.hexdigest()
-
-    def _file_state(self, path: Path):
         path = Path(path)
+
+        md5 = hashlib.md5()
+
+        with open(path, "rb") as file:
+            while True:
+                chunk = file.read(8192)
+
+                if not chunk:
+                    break
+
+                md5.update(chunk)
+
+        return md5.hexdigest()
+
+    def get_file_state(self, path):
+        """Collect metadata for a dataset file."""
+
+        path = Path(path)
+
         if not path.exists():
             return None
+
         return {
-            "hash": self._hash_file(path),
+            "hash": self.hash_file(path),
             "rows": len(pd.read_csv(path)),
             "size_kb": path.stat().st_size // 1024,
             "mtime": datetime.fromtimestamp(path.stat().st_mtime).isoformat(),
         }
 
-    def _load_state(self):
-        return json.loads(self.state_file.read_text()) if self.state_file.exists() else {}
+    def load_state(self):
+        """Load previously saved dataset state."""
 
-    def _save_state(self, state: dict):
+        if not self.state_file.exists():
+            return {}
+
+        return json.loads(
+            self.state_file.read_text()
+        )
+
+    def save_state(self, state):
+        """Persist latest dataset state."""
+
         self.state_file.parent.mkdir(parents=True, exist_ok=True)
+
         self.state_file.write_text(json.dumps(state, indent=2))
 
     def detect_changes(self):
-        """Compare current data vs last known state."""
-        prev = self._load_state()
-        current = {}
+        """Compare current files with previous state."""
+
+        previous_state = self.load_state()
+
+        current_state = {}
         changes = []
 
         for path in self.data_files:
-            key = str(Path(path).relative_to(ROOT))
-            cur_state = self._file_state(path)
-            current[key] = cur_state
 
-            if cur_state is None:
+            relative_path = str(Path(path).relative_to(ROOT))
+
+            current_file_state = self.get_file_state(path)
+
+            current_state[relative_path] = current_file_state
+
+            if current_file_state is None:
                 continue
 
-            prev_state = prev.get(key)
-            if prev_state is None:
-                changes.append({"file": key, "reason": "new_file"})
-                continue
+            previous_file_state = previous_state.get(relative_path)
 
-            if cur_state["hash"] != prev_state["hash"]:
-                row_diff = cur_state["rows"] - prev_state["rows"]
-                row_pct  = row_diff / max(prev_state["rows"], 1)
+            if previous_file_state is None:
                 changes.append({
-                    "file": key,
+                    "file": relative_path, 
+                    "reason": "new_file"
+                })
+                continue
+
+            if (current_file_state["hash"] != previous_file_state["hash"]):
+
+                row_diff = (current_file_state["rows"] - previous_file_state["rows"])
+
+                row_pct = (row_diff / max(previous_file_state["rows"],1))
+
+                changes.append({
+                    "file": relative_path,
                     "reason": "content_changed",
                     "row_diff": row_diff,
                     "row_pct": row_pct,
-                    "should_retrain": abs(row_pct) >= self.row_threshold,
+                    "should_retrain": (abs(row_pct) >= self.row_threshold),
                 })
 
-        return current, changes
+        return current_state, changes
 
     def days_since_last_train(self):
-        if not meta_file.exists():
+        """Get model age in days."""
+
+        if not META_FILE.exists():
             return 9999
-        meta = json.loads(meta_file.read_text())
-        trained_at = datetime.fromisoformat(meta["trained_at"])
+
+        metadata = json.loads(META_FILE.read_text())
+
+        trained_at = datetime.fromisoformat(metadata["trained_at"])
+
         return (datetime.now() - trained_at).days
 
-
-    def run_retrain(self, use_optuna=False):
-        """Execute training script."""
-        print("\n🔄 TRIGGERING RETRAIN")
-        cmd = ["python3", str(ROOT / "test" / "train_model.py")]
-        if use_optuna:
-            cmd.extend(["--optuna", "20"])
-        return subprocess.run(cmd, cwd=str(ROOT)).returncode == 0
-
-    def check_and_trigger(self, use_optuna=False):
-        """check and trigger function"""
-        timestamp = datetime.now().isoformat()
-        print(f"\n{'='*60}\nRETRAIN TRIGGER CHECK — {timestamp}\n{'='*60}")
-
-        current_state, changes = self.detect_changes()
-        days_old = self.days_since_last_train()
-        print(f"Days since last train: {days_old}")
-
-        should_retrain = False
+    def should_retrain(self, changes,model_age_days):
+        """Decide whether retraining is needed."""
         reasons = []
 
-        if days_old >= self.time_threshold_days:
-            should_retrain = True
-            reasons.append(f"model is {days_old} days old (>= {self.time_threshold_days})")
+        if (model_age_days >= self.time_threshold_days):
+            reasons.append(f"model age = {model_age_days} days")
 
-        for c in changes:
-            print(f"\nChange in {c['file']}: {c['reason']}")
-            if c["reason"] == "new_file":
-                should_retrain = True
-                reasons.append(f"new file: {c['file']}")
-            elif c.get("should_retrain"):
-                should_retrain = True
-                reasons.append(
-                    f"{c['file']} changed {c['row_pct']*100:+.1f}% rows ({c['row_diff']:+d})"
-                )
-            else:
-                print("  → minor change, skip retrain")
+        for change in changes:
+            if change["reason"] == "new_file":
+                reasons.append(f"new dataset: {change['file']}")
+                continue
 
-        if should_retrain:
-            print("\n🚨 RETRAIN TRIGGERED\nReasons:")
-            for r in reasons:
-                print(f"  - {r}")
-            success = self.run_retrain(use_optuna=use_optuna)
-            if success:
-                print("\n✅ Retrain success — updating state")
-                self._save_state(current_state)
-            else:
-                print("\n❌ Retrain failed — state not updated")
-            return success
+            if change.get("should_retrain"):
+                reasons.append(f"{change['file']} changed {change['row_pct']*100:+.1f}% ({change['row_diff']:+d} rows)")
 
-        print("\n✓ No retrain needed")
-        self._save_state(current_state)
-        return False
+        return bool(reasons), reasons
+
+    def print_summary(self, model_age_days,changes):
+        """Print change summary."""
+
+        print("\n" + "=" * 60)
+        print(f"RETRAIN CHECK — {datetime.now().isoformat()}")
+        print("=" * 60)
+
+        print(f"\nModel age: {model_age_days} days")
+
+        if not changes:
+            print("\nNo dataset changes detected.")
+            return
+
+        print("\nDetected changes:")
+
+        for change in changes:
+
+            print(f"\n• {change['file']}")
+            print(f"  reason: {change['reason']}")
+
+            if change["reason"] == "content_changed":
+                print(f"  row diff: {change['row_diff']:+d}")
+
+                print(f"  row change: {change['row_pct']*100:+.2f}%")
+
+    def run_retrain(self, use_optuna=False,):
+        """Execute training pipeline."""
+
+        print("\n🔄 Starting retraining...")
+
+        command = ["python3",str(ROOT/ "test"/ "train_model.py")]
+
+        if use_optuna:
+            command.extend(["--optuna", "20"])
+
+        result = subprocess.run(command, cwd=str(ROOT))
+
+        return result.returncode == 0
+
+    def check(self, use_optuna=False):
+        """Run retrain trigger workflow."""
+
+        current_state, changes = (self.detect_changes())
+        model_age_days = (self.days_since_last_train())
+        self.print_summary(model_age_days,changes)
+        should_retrain, reasons = (self.should_retrain(changes, model_age_days))
+
+        if not should_retrain:
+            print("\n✓ Retraining not required")
+
+            self.save_state(current_state)
+            return False
+
+        print("\n🚨 Retraining triggered")
+
+        print("\nReasons:")
+
+        for reason in reasons:
+            print(f"  - {reason}")
+
+        success = self.run_retrain(use_optuna=use_optuna)
+
+        if success:
+            print("\n✅ Retraining completed")
+            self.save_state(current_state)
+
+        else:
+            print("\n❌ Retraining failed")
+
+        return success

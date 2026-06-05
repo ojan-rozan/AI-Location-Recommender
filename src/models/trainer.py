@@ -39,7 +39,7 @@ class Trainer:
         y = self.df["target"]
         return train_test_split(X, y, test_size=test_size, random_state=random_state)
 
-    def _evaluate(self, model, X_test, y_test) -> dict:
+    def evaluate(self, model, X_test, y_test) -> dict:
         pred = model.predict(X_test)
         return {
             "r2": float(r2_score(y_test, pred)),
@@ -47,7 +47,7 @@ class Trainer:
             "rmse": float(np.sqrt(mean_squared_error(y_test, pred))),
         }
 
-    def _cv(self, model, X, y, n_splits=5) -> dict:
+    def cross_validation(self, model, X, y, n_splits=5) -> dict:
         kf = KFold(n_splits=n_splits, shuffle=True, random_state=42)
         cv_r2  = cross_val_score(model.model, X, y, cv=kf, scoring="r2")
         cv_mae = -cross_val_score(model.model, X, y, cv=kf,
@@ -57,13 +57,13 @@ class Trainer:
             "mae_mean": float(cv_mae.mean()), "mae_std": float(cv_mae.std()),
         }
 
-    def _early_stop_callback(self):
+    def early_stop(self):
         def callback(study, trial):
             if trial.number - study.best_trial.number >= self.early_stop_after:
                 study.stop()
         return callback
 
-    def _save_meta(self, run_id, params, metrics, cv, n_features):
+    def save_meta(self, run_id, params, metrics, cv, n_features):
         meta = {
             "trained_at": datetime.now().isoformat(),
             "mlflow_run_id": run_id,
@@ -115,7 +115,7 @@ class Trainer:
                 objective,
                 n_trials=self.n_trials,
                 timeout=self.timeout_seconds,
-                callbacks=[self._early_stop_callback()],
+                callbacks=[self.early_stop()],
                 show_progress_bar=True,
             )
 
@@ -129,17 +129,17 @@ class Trainer:
             final.fit(X_train, y_train, eval_set=[(X_test, y_test)])
 
             # Eval di test set
-            metrics = self._evaluate(final, X_test, y_test)
+            metrics = self.evaluate(final, X_test, y_test)
 
             # CV final
-            cv = self._cv(final, X_train, y_train)
+            cv = self.cross_validation(final, X_train, y_train)
 
             mlflow.log_params({f"best_{k}": v for k, v in best_params.items()})
             mlflow.log_metrics({**metrics, **{f"cv_{k}": v for k, v in cv.items()}})
             mlflow.xgboost.log_model(final.model, "best_model", input_example=X_train.head(2))
 
             final.save(model_path / "xgb_demand.pkl")
-            self._save_meta(run.info.run_id, best_params, metrics, cv, X_train.shape[1])
+            self.save_meta(run.info.run_id, best_params, metrics, cv, X_train.shape[1])
 
             print("\n[Final Model]")
             for k, v in metrics.items():

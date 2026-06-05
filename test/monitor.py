@@ -1,9 +1,6 @@
 """
 Monitor model performance + data drift.
 
-Run periodik (cronjob daily):
-    python3 scripts/monitor.py
-
 Exit code:
     0 — healthy
     1 — alert (performance drop OR drift detected)

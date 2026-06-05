@@ -401,10 +401,10 @@ def main():
 
     # print plan
     print("=" * 50)
-    print("category    :", category)
-    print("kecamatan   :", len(df))
-    print("per kec     :", places_per_kecamatan)
-    print("max target  :", len(df) * places_per_kecamatan)
+    print("category :", category)
+    print("kecamatan :", len(df))
+    print("per kec :", places_per_kecamatan)
+    print("max target :", len(df) * places_per_kecamatan)
     print("=" * 50)
 
     # loop each kecamatan
@@ -442,7 +442,7 @@ def main():
         save_to_json(all_records, file_json)
         save_to_json(all_records, file_checkpoint)
 
-        # >>> upload hasil scraping ke Supabase <<<
+        # upload hasil scraping ke Supabase
         try:
             sio.upload_df(sio.RAW_CAFES, pd.DataFrame(all_records))
         except Exception as e:

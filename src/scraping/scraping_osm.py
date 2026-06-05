@@ -262,7 +262,7 @@ def scrape_one_category(category, tags, cat_index, cat_total):
     save_to_csv(records, out_csv)
     save_to_json(records, out_json)
 
-    # >>> upload hasil scraping ke Supabase <<<
+    # upload hasil scraping ke Supabas
     try:
         sio.upload_df(sio.raw_poi(category), pd.DataFrame(records))
     except Exception as e:

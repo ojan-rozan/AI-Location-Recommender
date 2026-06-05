@@ -1,8 +1,5 @@
 """
 Evaluate trained model.
-
-Run dari project root:
-    python3 scripts/evaluate_model.py
 """
 
 import sys

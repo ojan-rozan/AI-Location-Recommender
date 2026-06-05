@@ -4,118 +4,238 @@ import json
 from datetime import datetime
 from pathlib import Path
 
-from sklearn.metrics import r2_score, mean_absolute_error
+from sklearn.metrics import mean_absolute_error, r2_score
 
 from src.data.data_loader import ROOT
 from src.models.model import DemandModel
 
+MODEL_PATH = ROOT / "models" / "xgb_demand.pkl"
+META_PATH = ROOT / "models" / "model_meta.json"
 
-model_path = ROOT / "models" / "xgb_demand.pkl"
-meta_path = ROOT / "models" / "model_meta.json"
-log_dir = ROOT / "logs" / "monitoring"
-log_dir.mkdir(parents=True, exist_ok=True)
+LOG_DIR = ROOT / "logs" / "monitoring"
+LOG_DIR.mkdir(parents=True, exist_ok=True)
 
 
 class ModelMonitor:
-    """Cek drift dan performance degradation pada model deployed."""
+    """Monitor model performance dan feature drift."""
 
-    drift_threshold = 0.20   # 20% mean shift = drift
-    perf_drop_threshold = 0.05   # R² drop > 0.05 = alert
+    def __init__(self, model_path=MODEL_PATH, meta_path=META_PATH, drift_threshold=0.20, perf_drop_threshold=0.05):
+        self.drift_threshold = drift_threshold
+        self.perf_drop_threshold = perf_drop_threshold
 
-    def __init__(self, model_path=model_path, meta_path=meta_path):
-        model_path, meta_path = Path(model_path), Path(meta_path)
+        model_path = Path(model_path)
+        meta_path = Path(meta_path)
+
         if not model_path.exists():
-            raise FileNotFoundError(f"Model not found: {model_path}")
-        self.model = DemandModel.load(model_path)
-        self.baseline_meta = json.loads(meta_path.read_text()) if meta_path.exists() else {}
+            raise FileNotFoundError(
+                f"Model not found: {model_path}"
+            )
 
-    def check_performance(self, current_df) -> dict:
+        self.model = DemandModel.load(model_path)
+
+        self.baseline_meta = {}
+
+        if meta_path.exists():
+            self.baseline_meta = json.loads(
+                meta_path.read_text()
+            )
+
+    def check_performance(self, current_df):
+        """Hitung metric model pada data terbaru."""
+
         X = current_df[self.model.feature_cols].fillna(0)
         y_true = current_df["target"]
-        pred = self.model.predict(X)
+
+        predictions = self.model.predict(X)
+
         return {
-            "r2": float(r2_score(y_true, pred)),
-            "mae": float(mean_absolute_error(y_true, pred)),
+            "r2": float(
+                r2_score(y_true, predictions)
+            ),
+            "mae": float(
+                mean_absolute_error(
+                    y_true,
+                    predictions,
+                )
+            ),
             "n_samples": len(current_df),
         }
 
-    def check_drift(self, current_df, baseline_means=None) -> dict:
-        """Compare feature distribution and baseline means."""
-        drift_report = {}
-        for col in self.model.feature_cols:
-            if col not in current_df.columns:
-                continue
-            cur_mean = float(current_df[col].mean())
-            ref_mean = (baseline_means or {}).get(col)
+    def check_drift(self, current_df, baseline_means=None):
+        """Bandingkan mean feature saat ini vs baseline."""
 
-            if ref_mean:
-                pct_change = abs(cur_mean - ref_mean) / abs(ref_mean)
-                drift_report[col] = {
-                    "current_mean": cur_mean,
-                    "baseline_mean": ref_mean,
-                    "pct_change": float(pct_change),
-                    "drift": pct_change > self.drift_threshold,
+        drift_report = {}
+
+        baseline_means = baseline_means or {}
+
+        for feature in self.model.feature_cols:
+
+            if feature not in current_df.columns:
+                continue
+
+            current_mean = float(
+                current_df[feature].mean()
+            )
+
+            reference_mean = baseline_means.get(
+                feature
+            )
+
+            if reference_mean is None:
+
+                drift_report[feature] = {
+                    "current_mean": current_mean,
+                    "baseline_mean": None,
+                    "pct_change": None,
+                    "drift": False,
                 }
+
+                continue
+
+            if reference_mean == 0:
+                pct_change = 0
             else:
-                drift_report[col] = {"current_mean": cur_mean, "baseline_mean": None, "drift": False}
+                pct_change = (
+                    abs(current_mean - reference_mean)
+                    / abs(reference_mean)
+                )
+
+            drift_report[feature] = {
+                "current_mean": current_mean,
+                "baseline_mean": reference_mean,
+                "pct_change": float(pct_change),
+                "drift": (
+                    pct_change
+                    > self.drift_threshold
+                ),
+            }
 
         return drift_report
 
-    def run(self, current_df):
-        """Full monitoring run and save log."""
-        timestamp = datetime.now().isoformat()
-        baseline_metrics = self.baseline_meta.get("metrics", {})
-        baseline_r2 = baseline_metrics.get("r2")  # None kalau belum ada baseline
+    def load_previous_feature_means(self):
+        """Ambil baseline feature mean dari log terakhir."""
 
-        print(f"\n{'='*60}\nMODEL MONITORING — {timestamp}\n{'='*60}")
+        logs = sorted(
+            LOG_DIR.glob("monitor_*.json")
+        )
+
+        if not logs:
+            return None
+
+        latest_log = logs[-1]
+
+        payload = json.loads(
+            latest_log.read_text()
+        )
+
+        return payload.get(
+            "feature_means",
+            {},
+        )
+
+    def build_feature_means(self, current_df):
+        """Simpan mean feature untuk baseline monitoring berikutnya."""
+
+        return {
+            feature: float(
+                current_df[feature].mean()
+            )
+            for feature in self.model.feature_cols
+            if feature in current_df.columns
+        }
+
+    def save_log(self, payload):
+        """Save monitoring result."""
+
+        filename = (
+            "monitor_"+ datetime.now().strftime("%Y%m%d_%H%M%S")+ ".json"
+        )
+
+        log_path = LOG_DIR / filename
+
+        log_path.write_text(
+            json.dumps(
+                payload,
+                indent=2,
+            )
+        )
+
+        return log_path
+
+    def print_summary(self, performance, baseline_r2, r2_drop, drifted_features):
+        print("\n" + "=" * 60)
+        print(f"MODEL MONITORING — {datetime.now().isoformat()}")
+        print("=" * 60)
+
         if baseline_r2 is not None:
             print(f"Baseline R²: {baseline_r2:.4f}")
 
         print("\n[Performance Check]")
-        current_perf = self.check_performance(current_df)
-        print(f"  Current R² : {current_perf['r2']:.4f}")
-        print(f"  Current MAE: {current_perf['mae']:.4f}")
-        print(f"  Samples    : {current_perf['n_samples']}")
 
-        r2_drop    = (baseline_r2 - current_perf["r2"]) if baseline_r2 is not None else None
-        perf_alert = (r2_drop > self.perf_drop_threshold) if r2_drop is not None else False
-        print(f"  ⚠️  ALERT: R² dropped by {r2_drop:.3f}" if perf_alert else "  ✓ Performance stable")
+        print(f"  Current R² : {performance['r2']:.4f}")
+        print(f"  Current MAE: {performance['mae']:.4f}")
+        print(f"  Samples    : {performance['n_samples']}")
 
-        # Drift
-        prev_logs = sorted(log_dir.glob("monitor_*.json"))
-        baseline_means = (
-            json.loads(prev_logs[-1].read_text()).get("feature_means", {})
-            if prev_logs else None
-        )
+        if (r2_drop is not None and r2_drop > self.perf_drop_threshold):
+            print(f"  ⚠️ ALERT: R² dropped by {r2_drop:.3f}")
+        else:
+            print("  ✓ Performance stable")
 
         print("\n[Drift Detection]")
-        drift = self.check_drift(current_df, baseline_means=baseline_means)
-        drifted = [k for k, v in drift.items() if v.get("drift")]
-        drift_alert = bool(drifted)
-        if drift_alert:
-            print(f"  ⚠️  Drift detected pada {len(drifted)} feature:")
-            for f in drifted:
-                print(f"    {f}: {drift[f]['pct_change']*100:.1f}% change")
+
+        if drifted_features:
+
+            print(f"  ⚠️ Drift detected on {len(drifted_features)} features:")
+
+            for feature in drifted_features:
+                print(f"    - {feature}")
+
         else:
             print("  ✓ No significant drift")
 
-        log_entry = {
-            "timestamp": timestamp,
-            "current_metrics": current_perf,
+    def run(self, current_df):
+        """Run monitoring pipeline."""
+
+        performance = self.check_performance(current_df)
+
+        baseline_metrics = (
+            self.baseline_meta.get("metrics",{})
+        )
+
+        baseline_r2 = baseline_metrics.get("r2")
+
+        r2_drop = None
+
+        if baseline_r2 is not None:
+            r2_drop = (baseline_r2 - performance["r2"])
+
+        perf_alert = (r2_drop is not None and r2_drop > self.perf_drop_threshold)
+
+        baseline_means = (self.load_previous_feature_means())
+
+        drift_report = self.check_drift(current_df, baseline_means)
+
+        drifted_features = [feature for feature, result in drift_report.items() if result["drift"]]
+
+        drift_alert = bool(drifted_features)
+
+        self.print_summary(performance, baseline_r2, r2_drop, drifted_features)
+
+        log_payload = {
+            "timestamp": datetime.now().isoformat(),
+            "current_metrics": performance,
             "baseline_metrics": baseline_metrics,
             "r2_drop": r2_drop,
             "perf_alert": perf_alert,
             "drift_alert": drift_alert,
-            "drifted_features": drifted,
-            "feature_means": {
-                c: float(current_df[c].mean())
-                for c in self.model.feature_cols
-                if c in current_df.columns
-            },
+            "drifted_features": drifted_features,
+            "feature_means": self.build_feature_means(current_df),
         }
 
-        log_file = log_dir / f"monitor_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
-        log_file.write_text(json.dumps(log_entry, indent=2))
-        print(f"\n✓ Log saved: {log_file.name}")
+        log_path = self.save_log(log_payload)
 
-        return log_entry, (perf_alert or drift_alert)
+        print(f"\n✓ Log saved: {log_path.name}")
+
+        alert = (perf_alert or drift_alert)
+
+        return log_payload, alert

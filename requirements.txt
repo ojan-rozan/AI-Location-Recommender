@@ -1,38 +1,40 @@
+# Library yang dipakai (di-import) di kode .py & notebook. Pinned versi.
+
 # Data & numerik
-pandas
-numpy
-scipy
+pandas==2.2.2
+numpy==2.2.6
+scipy==1.14.1
 
 # ML
-scikit-learn
-xgboost
-shap
-joblib
-mlflow
-optuna
+scikit-learn==1.8.0
+xgboost==3.2.0
+shap==0.51.0
+joblib==1.4.2
+mlflow==2.16.2
+optuna==3.6.1
 
 # Visualisasi (notebook)
-matplotlib
-seaborn
+matplotlib==3.9.2
+seaborn==0.13.2
 
 # Utils
-tqdm
-python-dotenv
-requests
+tqdm==4.66.5
+python-dotenv==1.0.1
+requests==2.32.3
 
 # Database & LLM
-supabase
-groq
+supabase==2.7.4
+groq==0.11.0
 
 # API
-fastapi
-uvicorn[standard]
-pydantic
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+pydantic==2.9.2
 
 # UI
-streamlit
-streamlit-folium
-folium
+streamlit==1.38.0
+streamlit-folium==0.22.1
+folium==0.17.0
 
 # Notebook kernel
-ipykernel
+ipykernel==6.29.5

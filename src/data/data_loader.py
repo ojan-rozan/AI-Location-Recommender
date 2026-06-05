@@ -18,7 +18,7 @@ ROOT = find_project_root()
 
 
 class DataLoader:
-    """Centralized data loader — sumber data: Supabase."""
+    """Centralized data loade. sumber datanya Supabase."""
 
     def load_cafes(self):
         """Load data cafe (hasil scraping Google Maps) dari Supabase."""

@@ -6,9 +6,6 @@ Flow:
 2. Clean (DataProcessor)
 3. Extract features (FeatureExtractor)
 4. Train (Trainer)
-
-Run dari project root:
-    python3 scripts/train_model.py
 """
 
 import sys
