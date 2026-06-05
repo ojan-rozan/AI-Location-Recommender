@@ -1,3 +1,12 @@
+---
+title: Coffee Shop Location AI
+emoji: ☕
+colorFrom: red
+colorTo: yellow
+sdk: docker
+pinned: false
+---
+
 # Coffee Shop Location Recommender
 
 ## Problem
