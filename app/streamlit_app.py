@@ -1,21 +1,33 @@
 """
 Coffee Shop Location Recommender — Streamlit UI.
 
-UI memanggil API (FastAPI). Jalanin API dulu:
-    uvicorn app.api:app --port 8000
+Self-contained: logika dipanggil LANGSUNG (in-process) dari app/api.py,
+TANPA butuh server API terpisah. Cocok buat Streamlit Community Cloud.
+
+Run lokal:
     streamlit run app/streamlit_app.py
 
-URL API dari env API_URL (default http://localhost:8000).
+Butuh di env / Streamlit secrets:
+    SUPABASE_URL, SUPABASE_KEY, GROQ_API_KEY (opsional buat AI summary)
 """
 
 import os
+import sys
+import warnings
+from pathlib import Path
 
-import requests
 import folium
 import streamlit as st
 from streamlit_folium import st_folium
 
-API_URL = os.environ.get("API_URL", "http://localhost:8000").rstrip("/")
+os.environ["KMP_DUPLICATE_LIB_OK"] = "True"
+warnings.filterwarnings("ignore")
+
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+
+# logika inti (load model + data Supabase + predict) — dipanggil langsung
+from app.api import do_features, do_nearest, do_map_data, do_analyze  # noqa: E402
 
 st.set_page_config(
     page_title="Coffee Shop Location AI",
@@ -25,27 +37,9 @@ st.set_page_config(
 )
 
 
-def api_get(path, params=None):
-    r = requests.get(f"{API_URL}{path}", params=params, timeout=120)
-    r.raise_for_status()
-    return r.json()
-
-
-def api_post(path, body):
-    r = requests.post(f"{API_URL}{path}", json=body, timeout=180)
-    r.raise_for_status()
-    return r.json()
-
-
 def main():
     st.title("☕ Coffee Shop Location Recommender — Jakarta")
-    st.caption(f"AI analysis untuk kelayakan coffee shop · API: {API_URL}")
-
-    try:
-        api_get("/health")
-    except Exception as e:
-        st.error(f"❌ API tidak terjangkau di {API_URL}. Jalankan API dulu.\n\n{e}")
-        st.stop()
+    st.caption("AI analysis untuk kelayakan pembukaan coffee shop")
 
     if "lat" not in st.session_state:
         st.session_state.lat, st.session_state.lng = -6.2297, 106.8195
@@ -99,10 +93,10 @@ def main():
             radius_km = st.slider("Radius (km)", 1, 5, 2)
 
         try:
-            md = api_get("/map-data", {"lat": lat, "lng": lng, "radius_m": radius_km * 1000})
+            md = do_map_data(lat, lng, radius_km * 1000)
         except Exception as e:
-            st.error(f"Gagal /map-data: {e}")
-            md = {"cafes": [], "owner": [], "poi": {}}
+            st.error(f"❌ Gagal load data: {e}")
+            st.stop()
 
         m = folium.Map(location=[lat, lng], zoom_start=14, tiles="cartodbpositron")
         folium.Marker(
@@ -156,9 +150,9 @@ def main():
     with col2:
         st.subheader("📊 Quick Stats")
         try:
-            feats = api_get("/features", {"lat": lat, "lng": lng})
+            feats = do_features(lat, lng)
         except Exception as e:
-            st.error(f"Gagal /features: {e}")
+            st.error(f"Gagal hitung fitur: {e}")
             feats = {}
 
         c1, c2 = st.columns(2)
@@ -169,11 +163,7 @@ def main():
         c1.metric("Mall 2km", feats.get("n_malls_2km", 0))
         c2.metric("Owner", f"{feats.get('nearest_owner_store_m', 0):.0f}m")
 
-        try:
-            near = api_get("/nearest", {"lat": lat, "lng": lng, "top_n": 3})
-        except Exception as e:
-            st.error(f"Gagal /nearest: {e}")
-            near = {"competitors": [], "owner_stores": []}
+        near = do_nearest(lat, lng, top_n=3)
 
         st.divider()
         st.subheader("🏪 Top 3 Kompetitor")
@@ -208,9 +198,9 @@ def main():
     if analyze_btn:
         with st.spinner("Predict + retrieve + LLM..."):
             try:
-                st.session_state.result = api_post("/analyze", {"lat": lat, "lng": lng})
+                st.session_state.result = do_analyze(lat, lng)
             except Exception as e:
-                st.error(f"Gagal /analyze: {e}")
+                st.error(f"Gagal analisis: {e}")
                 st.stop()
 
     if st.session_state.result is not None:
@@ -235,7 +225,7 @@ def main():
         if res.get("summary"):
             st.markdown(res["summary"])
         else:
-            st.info("Ringkasan LLM tidak tersedia (cek GROQ_API_KEY di API).")
+            st.info("Ringkasan LLM tidak tersedia (cek GROQ_API_KEY).")
 
 
 if __name__ == "__main__":

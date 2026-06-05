@@ -28,7 +28,7 @@ from src.models.model import DemandModel
 from src.data import supabase_io as sio
 
 
-# ============ helpers ============
+# helpers
 def _json_safe(obj):
     """Coerce numpy/NaN -> tipe JSON-safe lewat pandas."""
     return json.loads(pd.Series(obj).to_json())
@@ -45,7 +45,7 @@ def _records(df, cols=None, limit=None):
     return json.loads(d.to_json(orient="records"))
 
 
-# ============ resource loader (singleton) ============
+# resource loader (singleton)
 class _Resources:
     """Holder model + data. Load sekali, cache di memori."""
 
@@ -102,7 +102,7 @@ def res() -> _Resources:
     return _res
 
 
-# ============ core logic ============
+# core logic
 def _nearest_df(df, lat, lng, top_n, cols=None):
     if df is None or df.empty:
         return []
@@ -176,7 +176,20 @@ def do_analyze(lat, lng):
     }
 
 
-# ============ FastAPI ============
+def do_features(lat, lng):
+    return _json_safe(res().extractor.extract_features(lat, lng))
+
+
+def do_nearest(lat, lng, top_n=3):
+    r = res()
+    return {
+        "competitors": _nearest_df(r.cafes, lat, lng, top_n,
+                                   cols=["name", "rating", "reviews_count", "lat", "lng"]),
+        "owner_stores": _nearest_df(r.owner, lat, lng, top_n),
+    }
+
+
+# FastAPI
 app = FastAPI(
     title="Coffee Shop Location API",
     description="Prediksi kelayakan lokasi coffee shop di Jakarta (ML + RAG).",
@@ -208,7 +221,7 @@ def health():
 def features(lat: float = Query(..., ge=-90, le=90), lng: float = Query(..., ge=-180, le=180)):
     """Fitur lokasi (buat quick stats)."""
     try:
-        return _json_safe(res().extractor.extract_features(lat, lng))
+        return do_features(lat, lng)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -221,12 +234,7 @@ def nearest(
 ):
     """Cafe kompetitor & owner store terdekat."""
     try:
-        r = res()
-        return {
-            "competitors": _nearest_df(r.cafes, lat, lng, top_n,
-                                       cols=["name", "rating", "reviews_count", "lat", "lng"]),
-            "owner_stores": _nearest_df(r.owner, lat, lng, top_n),
-        }
+        return do_nearest(lat, lng, top_n)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

@@ -1,10 +1,10 @@
-# ===== Secrets =====
+# Secrets
 .env
 .env.*
 !.env.example
 *.key
 
-# ===== Python =====
+# Python
 __pycache__/
 *.py[cod]
 *.egg-info/
@@ -12,12 +12,12 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 
-# ===== Virtual env =====
+# Virtual env
 venv/
 .venv/
 env/
 
-# ===== Data: semua di Supabase sekarang, jadi data/ TIDAK ikut git =====
+# Data: semua di Supabase sekarang, jadi data/ TIDAK ikut git
 # Data lokal cuma cache. Sumber kebenaran = Supabase (tabel app_datasets).
 data/
 mlruns/
@@ -27,11 +27,11 @@ logs/
 # models/ SENGAJA tidak di-ignore: app butuh models/xgb_demand.pkl saat deploy
 # (file kecil ~2MB, bukan hasil scraping, gak ada isu ToS).
 
-# ===== Cache (notebook / scraping) =====
+# Cache (notebook / scraping)
 **/cache/
 .cache/
 
-# ===== OS / editor =====
+# OS / editor
 .DS_Store
 .idea/
 .vscode/
