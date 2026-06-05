@@ -37,6 +37,22 @@ def api_post(path, body):
     return r.json()
 
 
+# Cache hasil API per (lat,lng,radius) — biar toggle layer / rerun gak fetch ulang
+@st.cache_data(ttl=900, show_spinner=False)
+def get_map_data(lat, lng, radius_m):
+    return api_get("/map-data", {"lat": lat, "lng": lng, "radius_m": radius_m})
+
+
+@st.cache_data(ttl=900, show_spinner=False)
+def get_features(lat, lng):
+    return api_get("/features", {"lat": lat, "lng": lng})
+
+
+@st.cache_data(ttl=900, show_spinner=False)
+def get_nearest(lat, lng, top_n=3):
+    return api_get("/nearest", {"lat": lat, "lng": lng, "top_n": top_n})
+
+
 def main():
     st.title("☕ Coffee Shop Location Recommender — Jakarta")
     st.caption(f"AI analysis untuk kelayakan coffee shop · API: {API_URL}")
@@ -98,7 +114,7 @@ def main():
             radius_km = st.slider("Radius (km)", 1, 5, 2)
 
         try:
-            md = api_get("/map-data", {"lat": lat, "lng": lng, "radius_m": radius_km * 1000})
+            md = get_map_data(lat, lng, radius_km * 1000)
         except Exception as e:
             st.error(f"Gagal /map-data: {e}")
             md = {"cafes": [], "owner": [], "poi": {}}
@@ -147,7 +163,7 @@ def main():
     with col2:
         st.subheader("📊 Quick Stats")
         try:
-            feats = api_get("/features", {"lat": lat, "lng": lng})
+            feats = get_features(lat, lng)
         except Exception as e:
             st.error(f"Gagal /features: {e}")
             feats = {}
@@ -160,7 +176,7 @@ def main():
         c2.metric("Owner", f"{feats.get('nearest_owner_store_m', 0):.0f}m")
 
         try:
-            near = api_get("/nearest", {"lat": lat, "lng": lng, "top_n": 3})
+            near = get_nearest(lat, lng, 3)
         except Exception as e:
             st.error(f"Gagal /nearest: {e}")
             near = {"competitors": [], "owner_stores": []}
