@@ -202,9 +202,8 @@ class Coord(BaseModel):
     lng: float = Field(..., ge=-180, le=180, examples=[106.8195])
 
 
-@app.on_event("startup")
-def _warmup():
-    res()
+# NOTE: model + data di-load LAZY (pas request pertama), bukan saat startup,
+# biar app tetap boot walau Supabase lagi lambat/hiccup.
 
 
 @app.get("/", include_in_schema=False)
