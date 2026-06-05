@@ -2,7 +2,7 @@
 #   docker compose up --build   -> build + nyalain dua-duanya
 #   docker compose down         -> matiin
 #
-# UI  : http://localhost:8501   (yang dibuka user)
+# UI  : http://localhost:8501
 # API : http://localhost:8000/docs
 
 services:
@@ -13,7 +13,7 @@ services:
       - "8000:8000"
     env_file: .env
     restart: unless-stopped
-    # CMD default dari Dockerfile = uvicorn (API)
+    command: uvicorn app.api:app --host 0.0.0.0 --port 8000
 
   ui:
     build: .
@@ -22,7 +22,7 @@ services:
       - "8501:8501"
     env_file: .env
     environment:
-      # UI manggil API lewat nama service "api" di jaringan compose
+      # API Calling from UI
       - API_URL=http://api:8000
     depends_on:
       - api

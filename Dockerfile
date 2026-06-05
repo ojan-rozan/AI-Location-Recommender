@@ -22,10 +22,14 @@ COPY . .
 
 EXPOSE 8000 8501
 
-# Health check — pakai $PORT (default 8000)
-HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
-    CMD curl -f "http://localhost:${PORT:-8000}/health" || exit 1
+# Health check — Streamlit (default port 8501 / $PORT)
+HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \
+    CMD curl -f "http://localhost:${PORT:-8501}/_stcore/health" || exit 1
 
-# CMD default = API. Listen di $PORT (host kasih env ini; lokal default 8000).
-# Shell-form biar ${PORT} ke-expand. Service UI nimpa command-nya di compose.
-CMD uvicorn app.api:app --host 0.0.0.0 --port ${PORT:-8000}
+# CMD default = WEBSITE Streamlit (listen di $PORT, default 8501).
+# Service "api" di docker-compose nimpa command jadi uvicorn.
+CMD streamlit run app/streamlit_app.py \
+    --server.port=${PORT:-8501} \
+    --server.address=0.0.0.0 \
+    --server.enableCORS=false \
+    --server.enableXsrfProtection=false
