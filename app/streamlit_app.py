@@ -35,6 +35,21 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+# Fix gap kosong di bawah peta folium pas deploy (versi st_folium beda di HF)
+st.markdown(
+    """
+    <style>
+    div[data-testid="stHorizontalBlock"] { align-items: flex-start; }
+    iframe[title="streamlit_folium.st_folium"] { height: 550px !important; }
+    div[data-testid="stElementContainer"]:has(> iframe[title="streamlit_folium.st_folium"]) {
+        height: 550px !important;
+        overflow: hidden;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
 # API config
 def api_get(path, params=None):
     r = requests.get(f"{api_url}{path}", params=params, timeout=120)
