@@ -17,15 +17,11 @@ venv/
 .venv/
 env/
 
-# Data: semua di Supabase sekarang, jadi data/ TIDAK ikut git
-# Data lokal cuma cache. Sumber kebenaran = Supabase (tabel app_datasets).
-data/
+# Data Lokal (cuma folder data/ di root — JANGAN kena src/data yang isinya kode)
+/data/
 mlruns/
 logs/
 *.parquet
-
-# models/ SENGAJA tidak di-ignore: app butuh models/xgb_demand.pkl saat deploy
-# (file kecil ~2MB, bukan hasil scraping, gak ada isu ToS).
 
 # Cache (notebook / scraping)
 **/cache/
