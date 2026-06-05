@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# Pilih app berdasarkan env APP_MODE: "api" (default) atau "ui".
+# Port dari $PORT (HF default 7860; lokal bisa di-set sendiri).
+set -e
+
+PORT="${PORT:-7860}"
+
+if [ "$APP_MODE" = "ui" ]; then
+    exec streamlit run app/streamlit_app.py \
+        --server.port "$PORT" \
+        --server.address 0.0.0.0 \
+        --server.enableCORS false \
+        --server.enableXsrfProtection false
+else
+    exec uvicorn app.api:app --host 0.0.0.0 --port "$PORT"
+fi

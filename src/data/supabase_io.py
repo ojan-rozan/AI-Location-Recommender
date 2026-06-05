@@ -4,6 +4,7 @@ Supabase data IO
 
 import os
 import json
+import time
 
 import pandas as pd
 from supabase import create_client
@@ -43,14 +44,38 @@ def get_client():
     """Import Supabase client"""
     global _client
     if _client is None:
-        url = os.environ.get("SUPABASE_URL")
-        key = os.environ.get("SUPABASE_KEY")
+        url = os.environ.get("SUPABASE_URL", "").strip().rstrip("/")
+        key = os.environ.get("SUPABASE_KEY", "").strip()
         if not url or not key:
             raise RuntimeError(
                 "SUPABASE_URL + SUPABASE_KEY wajib di-set di .env "
             )
         _client = create_client(url, key)
     return _client
+
+
+def _reset_client():
+    """Buang client lama (koneksi ke-reset) biar bikin koneksi baru."""
+    global _client
+    _client = None
+
+
+def _with_retry(fn, tries=4, delay=1.5):
+    """
+    Jalanin fn() dengan retry. Supabase/httpx kadang lempar StreamReset
+    (HTTP/2 reset) yang transient — coba ulang dengan koneksi baru.
+    """
+    last_err = None
+    for attempt in range(tries):
+        try:
+            return fn()
+        except Exception as e:
+            last_err = e
+            print(f"  ⚠️  supabase error (attempt {attempt + 1}/{tries}): "
+                  f"{type(e).__name__}: {str(e)[:80]}")
+            _reset_client()
+            time.sleep(delay)
+    raise last_err
 
 
 def _to_json_records(df):
@@ -64,48 +89,50 @@ def _to_json_records(df):
 
 def upload_df(table, df, chunk_size=500, replace=True):
     """
-    Upload DataFrame ke tabel Supabase
+    Upload DataFrame ke tabel Supabase (dengan retry kalau koneksi reset).
     """
-    client = get_client()
-
-    if replace:
-        # hapus semua baris (id selalu >= 1)
-        client.table(table).delete().gte("id", 0).execute()
-
     records = _to_json_records(df)
     rows = [{"data": r} for r in records]
 
-    for i in range(0, len(rows), chunk_size):
-        client.table(table).insert(rows[i:i + chunk_size]).execute()
+    def _do():
+        client = get_client()
+        if replace:
+            client.table(table).delete().gte("id", 0).execute()
+        for i in range(0, len(rows), chunk_size):
+            client.table(table).insert(rows[i:i + chunk_size]).execute()
+        return len(rows)
 
-    print(f"  ↑ supabase '{table}': {len(rows)} rows uploaded")
-    return len(rows)
+    n = _with_retry(_do)
+    print(f"  ↑ supabase '{table}': {n} rows uploaded")
+    return n
 
 
 def read_df(table: str) -> pd.DataFrame:
     """
-    Read tabel Supabase `table` jadi DataFrame
+    Read tabel Supabase `table` jadi DataFrame (dengan retry kalau reset).
     """
-    client = get_client()
-    payloads = []
-    page_size = 1000
-    page = 0
+    def _do():
+        client = get_client()
+        payloads = []
+        page_size = 1000
+        page = 0
+        while True:
+            start = page * page_size
+            end = start + page_size - 1
+            resp = (
+                client.table(table)
+                .select("data")
+                .range(start, end)
+                .execute()
+            )
+            batch = resp.data or []
+            payloads.extend([row["data"] for row in batch])
+            if len(batch) < page_size:
+                break
+            page += 1
+        return payloads
 
-    while True:
-        start = page * page_size
-        end = start + page_size - 1
-        resp = (
-            client.table(table)
-            .select("data")
-            .range(start, end)
-            .execute()
-        )
-        batch = resp.data or []
-        payloads.extend([row["data"] for row in batch])
-        if len(batch) < page_size:
-            break
-        page += 1
-
+    payloads = _with_retry(_do)
     df = pd.DataFrame(payloads)
     print(f"  ✓ supabase '{table}': {len(df)} rows")
     return df

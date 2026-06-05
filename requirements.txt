@@ -1,27 +1,38 @@
+# Data & numerik
 pandas
 numpy
-apify_client
-ipykernel
-python-dotenv
-osmnx
-matplotlib 
-seaborn 
-geopandas
+scipy
+
+# ML
 scikit-learn
 xgboost
-lightgbm
-tqdm
 shap
+joblib
 mlflow
 optuna
+
+# Visualisasi (notebook)
+matplotlib
+seaborn
+
+# Utils
+tqdm
+python-dotenv
+requests
+
+# Database & LLM
 supabase
-sentence_transformers
-anthropic
-google-genai
 groq
+
+# API
+fastapi
+uvicorn[standard]
+pydantic
+
+# UI
 streamlit
 streamlit-folium
 folium
-fastapi
-uvicorn[standard]
-requests
+
+# Notebook kernel
+ipykernel

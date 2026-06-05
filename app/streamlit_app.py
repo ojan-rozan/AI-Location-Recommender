@@ -1,33 +1,21 @@
 """
 Coffee Shop Location Recommender — Streamlit UI.
 
-Self-contained: logika dipanggil LANGSUNG (in-process) dari app/api.py,
-TANPA butuh server API terpisah. Cocok buat Streamlit Community Cloud.
-
-Run lokal:
+UI manggil API (FastAPI). Jalanin API dulu:
+    uvicorn app.api:app --port 8000
     streamlit run app/streamlit_app.py
 
-Butuh di env / Streamlit secrets:
-    SUPABASE_URL, SUPABASE_KEY, GROQ_API_KEY (opsional buat AI summary)
+URL API dari env API_URL (default http://localhost:8000).
 """
 
 import os
-import sys
-import warnings
-from pathlib import Path
 
+import requests
 import folium
 import streamlit as st
 from streamlit_folium import st_folium
 
-os.environ["KMP_DUPLICATE_LIB_OK"] = "True"
-warnings.filterwarnings("ignore")
-
-ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT))
-
-# logika inti (load model + data Supabase + predict) — dipanggil langsung
-from app.api import do_features, do_nearest, do_map_data, do_analyze  # noqa: E402
+API_URL = os.environ.get("API_URL", "http://localhost:8000").rstrip("/")
 
 st.set_page_config(
     page_title="Coffee Shop Location AI",
@@ -37,16 +25,34 @@ st.set_page_config(
 )
 
 
+def api_get(path, params=None):
+    r = requests.get(f"{API_URL}{path}", params=params, timeout=120)
+    r.raise_for_status()
+    return r.json()
+
+
+def api_post(path, body):
+    r = requests.post(f"{API_URL}{path}", json=body, timeout=180)
+    r.raise_for_status()
+    return r.json()
+
+
 def main():
     st.title("☕ Coffee Shop Location Recommender — Jakarta")
-    st.caption("AI analysis untuk kelayakan pembukaan coffee shop")
+    st.caption(f"AI analysis untuk kelayakan coffee shop · API: {API_URL}")
+
+    try:
+        api_get("/health")
+    except Exception as e:
+        st.error(f"❌ API tidak terjangkau di {API_URL}. Jalankan API dulu.\n\n{e}")
+        st.stop()
 
     if "lat" not in st.session_state:
         st.session_state.lat, st.session_state.lng = -6.2297, 106.8195
     if "result" not in st.session_state:
         st.session_state.result = None
 
-    # ============ SIDEBAR ============
+    # SIDEBAR
     with st.sidebar:
         st.header("📍 Input Lokasi")
         lat = st.number_input("Latitude", value=st.session_state.lat, format="%.6f", step=0.001)
@@ -75,10 +81,9 @@ def main():
 
     col1, col2 = st.columns([2, 1])
 
-    # === MAP ===
+    # MAP
     with col1:
         st.subheader("🗺️ Peta Lokasi")
-
         with st.expander("⚙️ Layers", expanded=True):
             c1, c2, c3 = st.columns(3)
             with c1:
@@ -93,39 +98,32 @@ def main():
             radius_km = st.slider("Radius (km)", 1, 5, 2)
 
         try:
-            md = do_map_data(lat, lng, radius_km * 1000)
+            md = api_get("/map-data", {"lat": lat, "lng": lng, "radius_m": radius_km * 1000})
         except Exception as e:
-            st.error(f"❌ Gagal load data: {e}")
-            st.stop()
+            st.error(f"Gagal /map-data: {e}")
+            md = {"cafes": [], "owner": [], "poi": {}}
 
         m = folium.Map(location=[lat, lng], zoom_start=14, tiles="cartodbpositron")
-        folium.Marker(
-            [lat, lng], tooltip="📍 Kandidat",
-            icon=folium.Icon(color="red", icon="star", prefix="fa"),
-        ).add_to(m)
+        folium.Marker([lat, lng], tooltip="📍 Kandidat",
+                      icon=folium.Icon(color="red", icon="star", prefix="fa")).add_to(m)
         folium.Circle([lat, lng], radius=500, color="red", fill=True, fill_opacity=0.05).add_to(m)
         folium.Circle([lat, lng], radius=1000, color="orange", fill=False, dash_array="5,5").add_to(m)
 
         if show_owner:
-            for r in md["owner"]:
+            for r in md.get("owner", []):
                 folium.CircleMarker(
-                    [r["lat"], r["lng"]], radius=8,
-                    color="black", fill=True, fill_color="#FFD700",
-                    fill_opacity=0.9, weight=2,
+                    [r["lat"], r["lng"]], radius=8, color="black", fill=True,
+                    fill_color="#FFD700", fill_opacity=0.9, weight=2,
                     popup=f"<b>{r.get('nama', '')}</b><br>{r.get('tipe', '')}",
-                    tooltip=r.get("nama", "Owner"),
-                ).add_to(m)
+                    tooltip=r.get("nama", "Owner")).add_to(m)
 
         if show_cafe:
-            for r in md["cafes"]:
-                rating = r.get("rating") or 0
-                reviews = int(r.get("reviews_count") or 0)
+            for r in md.get("cafes", []):
                 folium.CircleMarker(
-                    [r["lat"], r["lng"]], radius=3,
-                    color="#FF8C00", fill=True, fill_color="#FFA500",
-                    fill_opacity=0.6, weight=1,
-                    popup=f"{r.get('name', '')}<br>{rating}★ ({reviews})",
-                ).add_to(m)
+                    [r["lat"], r["lng"]], radius=3, color="#FF8C00", fill=True,
+                    fill_color="#FFA500", fill_opacity=0.6, weight=1,
+                    popup=f"{r.get('name', '')}<br>{r.get('rating', 0)}★ "
+                          f"({int(r.get('reviews_count', 0) or 0)})").add_to(m)
 
         poi_styles = {
             "office": ("#1E40AF", "#3B82F6", show_office),
@@ -141,20 +139,18 @@ def main():
                     [r["lat"], r["lng"]], radius=6 if cat == "mall" else 3,
                     color=border, fill=True, fill_color=fill,
                     fill_opacity=0.7 if cat == "mall" else 0.6, weight=1,
-                    popup=f"{r.get('name', cat)}",
-                ).add_to(m)
+                    popup=f"{r.get('name', cat)}").add_to(m)
 
         st_folium(m, height=550, use_container_width=True, returned_objects=[])
 
-    # === QUICK STATS + NEAREST ===
+    # QUICK STATS + NEAREST
     with col2:
         st.subheader("📊 Quick Stats")
         try:
-            feats = do_features(lat, lng)
+            feats = api_get("/features", {"lat": lat, "lng": lng})
         except Exception as e:
-            st.error(f"Gagal hitung fitur: {e}")
+            st.error(f"Gagal /features: {e}")
             feats = {}
-
         c1, c2 = st.columns(2)
         c1.metric("Cafe 500m", feats.get("n_competitors_500m", 0))
         c2.metric("Cafe 2km", feats.get("n_competitors_2km", 0))
@@ -163,51 +159,50 @@ def main():
         c1.metric("Mall 2km", feats.get("n_malls_2km", 0))
         c2.metric("Owner", f"{feats.get('nearest_owner_store_m', 0):.0f}m")
 
-        near = do_nearest(lat, lng, top_n=3)
+        try:
+            near = api_get("/nearest", {"lat": lat, "lng": lng, "top_n": 3})
+        except Exception as e:
+            st.error(f"Gagal /nearest: {e}")
+            near = {"competitors": [], "owner_stores": []}
 
         st.divider()
         st.subheader("🏪 Top 3 Kompetitor")
-        for i, c in enumerate(near["competitors"], 1):
+        for i, c in enumerate(near.get("competitors", []), 1):
             dist = c.get("distance_m", 0)
-            d_color = "red" if dist < 200 else "orange" if dist < 500 else "gray"
+            dc = "red" if dist < 200 else "orange" if dist < 500 else "gray"
             st.markdown(
                 f"**{i}. {c.get('name', '-')}**  \n"
-                f"⭐ {c.get('rating', 0):.1f} ({int(c.get('reviews_count', 0))}) · "
-                f"<span style='color:{d_color}'><b>{dist:.0f}m</b></span>",
-                unsafe_allow_html=True,
-            )
+                f"⭐ {c.get('rating', 0):.1f} ({int(c.get('reviews_count', 0) or 0)}) · "
+                f"<span style='color:{dc}'><b>{dist:.0f}m</b></span>", unsafe_allow_html=True)
 
         st.divider()
         st.subheader("🏠 Owner Terdekat")
-        for i, s in enumerate(near["owner_stores"], 1):
+        for i, s in enumerate(near.get("owner_stores", []), 1):
             dist = s.get("distance_m", 0)
             if dist < 500:
-                d_color, icon = "red", "⚠️"
+                dc, icon = "red", "⚠️"
             elif dist < 1000:
-                d_color, icon = "orange", ""
+                dc, icon = "orange", ""
             else:
-                d_color, icon = "green", "✓"
+                dc, icon = "green", "✓"
             st.markdown(
                 f"**{i}. {s.get('nama', 'Store')}** {icon}  \n"
                 f"{s.get('tipe', '-')} · Rp {s.get('omzet_bulanan_juta', 0)}jt · "
-                f"<span style='color:{d_color}'><b>{dist:.0f}m</b></span>",
-                unsafe_allow_html=True,
-            )
+                f"<span style='color:{dc}'><b>{dist:.0f}m</b></span>", unsafe_allow_html=True)
 
-    # === ANALISIS ===
+    # ANALISIS
     if analyze_btn:
         with st.spinner("Predict + retrieve + LLM..."):
             try:
-                st.session_state.result = do_analyze(lat, lng)
+                st.session_state.result = api_post("/analyze", {"lat": lat, "lng": lng})
             except Exception as e:
-                st.error(f"Gagal analisis: {e}")
+                st.error(f"Gagal /analyze: {e}")
                 st.stop()
 
     if st.session_state.result is not None:
         st.divider()
         res = st.session_state.result
         ml = res["ml_data"]
-
         st.subheader("🎯 Hasil Analisis")
         sc1, sc2, sc3, sc4 = st.columns(4)
         sc1.metric("Score", f"{res['score']:.1f}/100")
@@ -225,7 +220,7 @@ def main():
         if res.get("summary"):
             st.markdown(res["summary"])
         else:
-            st.info("Ringkasan LLM tidak tersedia (cek GROQ_API_KEY).")
+            st.info("Ringkasan LLM tidak tersedia (cek GROQ_API_KEY di API).")
 
 
 if __name__ == "__main__":

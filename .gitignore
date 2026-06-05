@@ -17,7 +17,7 @@ venv/
 .venv/
 env/
 
-# Data Lokal (cuma folder data/ di root — JANGAN kena src/data yang isinya kode)
+# Data Lokal 
 /data/
 mlruns/
 logs/
