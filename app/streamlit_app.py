@@ -55,7 +55,7 @@ def get_nearest(lat, lng, top_n=3):
 
 def main():
     st.title("☕ Coffee Shop Location Recommender — Jakarta")
-    st.caption(f"AI analysis untuk kelayakan coffee shop · API: {API_URL}")
+    st.caption(f"AI analysis untuk kelayakan coffee shop")
 
     try:
         api_get("/health")
