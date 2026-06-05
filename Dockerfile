@@ -22,9 +22,10 @@ COPY . .
 
 EXPOSE 8000 8501
 
-# Health check default buat service API (uvicorn)
+# Health check — pakai $PORT (default 8000)
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
-    CMD curl -f http://localhost:8000/health || exit 1
+    CMD curl -f "http://localhost:${PORT:-8000}/health" || exit 1
 
-# CMD default = API. Service UI nimpa command-nya di docker-compose.
-CMD ["uvicorn", "app.api:app", "--host", "0.0.0.0", "--port", "8000"]
+# CMD default = API. Listen di $PORT (host kasih env ini; lokal default 8000).
+# Shell-form biar ${PORT} ke-expand. Service UI nimpa command-nya di compose.
+CMD uvicorn app.api:app --host 0.0.0.0 --port ${PORT:-8000}
