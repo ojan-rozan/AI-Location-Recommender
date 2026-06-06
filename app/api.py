@@ -38,6 +38,16 @@ def in_jakarta(lat, lng):
     return lo_lat <= lat <= hi_lat and lo_lng <= lng <= hi_lng
 
 
+def has_context(feats):
+    """Lokasi valid kalau ada konteks urban minimal di sekitarnya.
+    Menolak titik kosong/perairan yang lolos bbox (mis. tengah laut Ancol)."""
+    poi_total = (
+        feats.get("n_offices_2km", 0) + feats.get("n_malls_2km", 0)
+        + feats.get("n_transit_2km", 0) + feats.get("n_schools_2km", 0)
+    )
+    return feats.get("n_competitors_2km", 0) >= 2 and poi_total >= 5
+
+
 @app.on_event("startup")
 def load_resources():
     logger.info("Loading resources...")
@@ -238,6 +248,10 @@ def predict(body: Coord):
             return {"valid": False,
                     "message": "Lokasi di luar cakupan (bukan DKI Jakarta)",
                     "score": None}
+        if not has_context(extract_features(body.lat, body.lng)):
+            return {"valid": False,
+                    "message": "Lokasi minim infrastruktur pendukung (kemungkinan area kosong/perairan)",
+                    "score": None}
         return predict_location(body.lat, body.lng)
 
     except Exception:
@@ -251,6 +265,10 @@ def analyze(body: Coord):
         if not in_jakarta(body.lat, body.lng):
             return {"valid": False,
                     "message": "Lokasi di luar cakupan (bukan DKI Jakarta)",
+                    "score": None, "ml_data": None}
+        if not has_context(extract_features(body.lat, body.lng)):
+            return {"valid": False,
+                    "message": "Lokasi minim infrastruktur pendukung (kemungkinan area kosong/perairan)",
                     "score": None, "ml_data": None}
         return analyze_location(body.lat, body.lng)
 
