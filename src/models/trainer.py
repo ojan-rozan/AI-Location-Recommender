@@ -7,6 +7,10 @@ import numpy as np
 import mlflow
 import mlflow.xgboost
 import optuna
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+import shap
 from sklearn.model_selection import train_test_split, KFold, cross_val_score
 from sklearn.metrics import r2_score, mean_absolute_error, mean_squared_error
 
@@ -27,6 +31,11 @@ class Trainer:
     n_trials = 100
     timeout_seconds = 300   # 5 menit
     early_stop_after = 50    # stop kalau 50 trials berturut-turut tidak improve
+    drop_cols =['cafe_id', 'kecamatan', 'kota', 'lat', 'lng', 
+        'target', 'rating', 'reviews_count', 'n_competitors_500m',
+        'avg_competitor_rating_500', 'max_competitor_reviews_500', 
+        'total_competitor_reviews_500', 'n_offices_500m',
+        'n_malls_500m', 'n_transit_500m', 'n_schools_500m']
 
     def __init__(self, df_training):
         self.df = df_training
@@ -34,7 +43,7 @@ class Trainer:
         mlflow.set_experiment(self.experiment_name)
 
     def split(self, test_size=0.2, random_state=42):
-        feature_cols = self.df.drop(columns=['cafe_id', 'kecamatan', 'kota', 'lat', 'lng', 'target', 'rating', 'reviews_count']).columns.tolist()
+        feature_cols = self.df.drop(columns=self.drop_cols).columns.tolist()
         X = self.df[feature_cols].fillna(0)
         y = self.df["target"]
         return train_test_split(X, y, test_size=test_size, random_state=random_state)
@@ -62,6 +71,36 @@ class Trainer:
             if trial.number - study.best_trial.number >= self.early_stop_after:
                 study.stop()
         return callback
+
+    def save_shap(self, model, X, max_display=23):
+        """Generate & simpan plot SHAP global (bar importance + beeswarm)."""
+        if model.explainer is None:
+            print("  ⚠️  SHAP explainer tidak tersedia — skip plot.")
+            return
+
+        X = X[model.feature_cols].fillna(0)
+        shap_values = model.explainer.shap_values(X)
+
+        # Bar — ranking importance (mean |SHAP|)
+        plt.figure()
+        shap.summary_plot(shap_values, X, plot_type="bar", show=False, max_display=max_display)
+        plt.tight_layout()
+        plt.savefig(model_path / "shap_importance_bar.png", dpi=150, bbox_inches="tight")
+        plt.close()
+
+        # Beeswarm — arah & sebaran pengaruh
+        plt.figure()
+        shap.summary_plot(shap_values, X, show=False, max_display=max_display)
+        plt.tight_layout()
+        plt.savefig(model_path / "shap_summary.png", dpi=150, bbox_inches="tight")
+        plt.close()
+
+        # Log ke MLflow kalau ada run aktif
+        if mlflow.active_run():
+            mlflow.log_artifact(str(model_path / "shap_importance_bar.png"))
+            mlflow.log_artifact(str(model_path / "shap_summary.png"))
+
+        print(f"  ✓ SHAP plots saved → {model_path}/shap_*.png")
 
     def save_meta(self, run_id, params, metrics, cv, n_features):
         meta = {
@@ -140,6 +179,9 @@ class Trainer:
 
             final.save(model_path / "xgb_demand.pkl")
             self.save_meta(run.info.run_id, best_params, metrics, cv, X_train.shape[1])
+
+            # SHAP global importance (pakai train set)
+            self.save_shap(final, X_train)
 
             print("\n[Final Model]")
             for k, v in metrics.items():

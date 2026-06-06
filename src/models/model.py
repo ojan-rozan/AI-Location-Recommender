@@ -70,7 +70,7 @@ class DemandModel:
 
         raw_pred = self.model.predict(X)
 
-        # SHAP opsional — kalau explainer gak ada, top_factors dikosongin
+        # SHAP
         shap_vals = None
         if self.explainer is not None:
             try:
