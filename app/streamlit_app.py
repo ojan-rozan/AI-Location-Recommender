@@ -35,7 +35,6 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# Fix gap kosong di bawah peta folium pas deploy (versi st_folium beda di HF)
 st.markdown(
     """
     <style>
