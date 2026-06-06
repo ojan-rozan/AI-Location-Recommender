@@ -49,7 +49,7 @@ class SummaryGenerator:
 
     DEFAULT_MODEL = "llama-3.3-70b-versatile"
     DEFAULT_MAX_TOKENS = 1500
-    DEFAULT_TEMPERATURE = 0.7
+    DEFAULT_TEMPERATURE = 0.3
 
     def __init__(self, api_key=None, model=None):
         key = api_key or os.environ.get("GROQ_API_KEY")
